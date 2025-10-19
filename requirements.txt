@@ -1,0 +1,8 @@
+streamlit
+xarray
+pandas
+numpy
+folium
+streamlit_folium
+branca
+altair

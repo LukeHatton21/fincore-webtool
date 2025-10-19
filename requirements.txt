@@ -6,3 +6,8 @@ folium
 streamlit_folium
 branca
 altair
+plotly
+kaleido
+openpyxl
+matplotlib
+seaborn

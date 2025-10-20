@@ -45,7 +45,7 @@ with col2:
         technology = visualiser.tech_dictionary.get(technology)
 country_selection = st.selectbox(
         "Country", options=country_names, 
-        index=3, placeholder="Select Country of Interest...", key="CountryProjections")
+        index=2, placeholder="Select Country of Interest...", key="CountryProjections")
 country_selection = visualiser.crp_dictionary.get(country_selection)
 
 # Set out input tabs and calculate the share of cost of capital

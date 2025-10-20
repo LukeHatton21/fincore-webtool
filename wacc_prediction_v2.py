@@ -419,7 +419,7 @@ class WaccPredictor:
         generation_data.fillna(0, inplace=True)
         generation_data.rename(columns={"Penetration_"+year_str:"Penetration"}, inplace=True)
         if technology == "Gas CCUS":
-            generation_data["Penetration"] = generation_data["Penetration_"] * 0
+            generation_data["Penetration"] = generation_data["Penetration"] * 0
 
         
 
@@ -462,7 +462,56 @@ class WaccPredictor:
                 storage_df = pd.concat([storage_df, tech_wacc])
 
         return storage_df
+    
 
+    def calculate_weighted_average(self, shares_df, year, technology, country_code, concessionality):
+
+        # Set concessionality
+        if concessionality is None:
+            concessionality = "Commercial Rate"
         
+        # Calculate the international commercial cost of capital and share
+        if int(year) > 2024:
+            commercial_results = self.calculate_future_wacc(year, technology, country_code,  
+                                  interest_rates=True, GDP_change=True, renewable_targets=True)
+        else:
+            commercial_results = self.calculate_yearly_wacc(year, technology, country_code)
+        commercial_int_wacc = commercial_results["WACC"].values[0]
+        commercial_int_share = shares_df.loc[shares_df["source"] == "International Commercial", "Share"].values[0]
+        shares_df.loc[shares_df["source"] == "International Commercial","Cost of Capital"] = commercial_int_wacc
+        
+        # Calculate the international public finance cost of capital and share
+        if concessionality == "Commercial Rate":
+            concessionality = commercial_int_wacc["WACC"].values[0]
+        else:
+            concessionality = int(concessionality)
+        public_int_wacc = concessionality 
+        public_int_share = shares_df.loc[shares_df["source"] == "International Public", "Share"].values[0]
+        shares_df.loc[shares_df["source"] == "International Public","Cost of Capital"] = public_int_wacc
+        
+        # Calculate the domestic commercial cost of capital and share
+        commercial_dom_wacc = commercial_results["WACC"].values[0]
+        commercial_dom_share = shares_df.loc[shares_df["source"] == "Domestic Commercial", "Share"].values[0]
+        shares_df.loc[shares_df["source"] == "Domestic Commercial", "Cost of Capital"] = commercial_dom_wacc
+
+        # Calculate the domestic public cost of capital and share
+        public_dom_wacc = commercial_results["WACC"].values[0] - commercial_results["Technology_Risk"].values[0]
+        public_dom_share = shares_df.loc[shares_df["source"] == "Domestic Public", "Share"].values[0]
+        shares_df.loc[shares_df["source"] == "Domestic Public","Cost of Capital"] = public_dom_wacc
+
+        # Calculate grant share
+        grant_share = shares_df.loc[shares_df["source"] == "Grant", "Share"].values[0]
+        shares_df.loc[shares_df["source"] == "Grant","Cost of Capital"] = 0
+
+        # Calculate the overall cost of capital
+        overall_cost = (commercial_int_wacc * commercial_int_share + public_int_wacc * public_int_share + \
+                        commercial_dom_wacc * commercial_dom_share + public_dom_wacc * public_dom_share + \
+                        0 * grant_share)/(commercial_int_share + public_int_share + commercial_dom_share + \
+                                          public_dom_share + grant_share)
+        
+
+        return shares_df, overall_cost
+        
+
 
         

@@ -7,6 +7,9 @@ import branca.colormap as cm
 import altair as alt
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+from  streamlit_vertical_slider import vertical_slider 
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 class VisualiserClass:
     def __init__(self, crp_data, tech_premium):
@@ -242,3 +245,183 @@ class VisualiserClass:
         fig.show()
 
         fig.write_image("GlobalCoverage.png")
+
+
+    def vertical_sliders(self):
+
+        col1, col2, col3, col4, col5 = st.columns(5)
+        default_value = 20
+        max_value = 100
+
+        with col1:
+            commercial_int = vertical_slider(
+            label = "International Commercial",  #Optional
+            key = "vert_01" ,
+            height = 300, #Optional - Defaults to 300
+            thumb_shape = "square", #Optional - Defaults to "circle"
+            step = 1, #Optional - Defaults to 1
+            default_value=100 ,#Optional - Defaults to 0
+            min_value= 0, # Defaults to 0
+            max_value= max_value , # Defaults to 10
+            track_color = "blue", #Optional - Defaults to Streamlit Red
+            slider_color = ('red','blue'), #Optional
+            thumb_color= "orange", #Optional - Defaults to Streamlit Red
+            value_always_visible = True ,#Optional - Defaults to False
+            )
+        with col2:
+            public_int= vertical_slider(
+            label = "International Public",  #Optional
+            key = "vert_02" ,
+            height = 300, #Optional - Defaults to 300
+            thumb_shape = "square", #Optional - Defaults to "circle"
+            step = 1, #Optional - Defaults to 1
+            default_value=default_value ,#Optional - Defaults to 0
+            min_value= 0, # Defaults to 0
+            max_value= max_value , # Defaults to 10
+            track_color = "blue", #Optional - Defaults to Streamlit Red
+            slider_color = ('red','blue'), #Optional
+            thumb_color= "orange", #Optional - Defaults to Streamlit Red
+            value_always_visible = True ,#Optional - Defaults to False
+            )
+        with col3:
+            commercial_dom = vertical_slider(
+            label = "Domestic Commercial",  #Optional
+            key = "vert_03" ,
+            height = 300, #Optional - Defaults to 300
+            thumb_shape = "square", #Optional - Defaults to "circle"
+            step = 1, #Optional - Defaults to 1
+            default_value=default_value ,#Optional - Defaults to 0
+            min_value= 0, # Defaults to 0
+            max_value= max_value , # Defaults to 10
+            track_color = "blue", #Optional - Defaults to Streamlit Red
+            slider_color = ('red','blue'), #Optional
+            thumb_color= "orange", #Optional - Defaults to Streamlit Red
+            value_always_visible = True ,#Optional - Defaults to False
+            )
+        with col4:
+            public_dom = vertical_slider(
+            label = "Domestic Public",  #Optional
+            key = "vert_04" ,
+            height = 300, #Optional - Defaults to 300
+            thumb_shape = "square", #Optional - Defaults to "circle"
+            step = 1, #Optional - Defaults to 1
+            default_value=default_value ,#Optional - Defaults to 0
+            min_value= 0, # Defaults to 0
+            max_value= max_value , # Defaults to 10
+            track_color = "blue", #Optional - Defaults to Streamlit Red
+            slider_color = ('red','blue'), #Optional
+            thumb_color= "orange", #Optional - Defaults to Streamlit Red
+            value_always_visible = True ,#Optional - Defaults to False
+            )
+        with col5:
+            grants = vertical_slider(
+            label = "Grants",  #Optional
+            key = "vert_05" ,
+            height = 300, #Optional - Defaults to 300
+            thumb_shape = "square", #Optional - Defaults to "circle"
+            step = 1, #Optional - Defaults to 1
+            default_value=default_value ,#Optional - Defaults to 0
+            min_value= 0, # Defaults to 0
+            max_value= max_value , # Defaults to 10
+            track_color = "blue", #Optional - Defaults to Streamlit Red
+            slider_color = ('red','blue'), #Optional
+            thumb_color= "orange", #Optional - Defaults to Streamlit Red
+            value_always_visible = True ,#Optional - Defaults to False
+            )
+        shares_df = pd.DataFrame(data={"source": ["International Commercial", "International Public", 
+                                            "Domestic Commercial", "Domestic Public", "Grant"], 
+                                 "Share": [commercial_int, public_int, commercial_dom, public_dom, grants]})
+
+        return shares_df
+
+    def show_source_average(self, df, overall):
+
+        # Calculate the cumulative share
+        df["cumulative_share"] = df["Share"].cumsum()
+        df["Cost of Capital"].loc[df["Cost of Capital"]==0] = 0.1
+        # Create figure
+        fig = make_subplots(rows=1, cols=2, column_widths=[0.85, 0.15])
+        
+        # Produce stepped chart with contributions
+        for index, row in df.iterrows():
+            fig.add_trace(go.Bar(
+            name=row["source"],
+            y=[row["Cost of Capital"]],
+            x=[row["cumulative_share"]-row["Share"]],
+            width=[row["Share"]],
+            offset=0),
+            row=1, 
+            col=1)
+        # Produce overall cost of capital
+        fig.add_trace(go.Bar(
+            name="Overall cost of capital",
+            y=[overall],
+            x=[0],
+            width=[10],
+            offset=0),
+            row=1, 
+            col=2)
+        # Add in axis
+        fig.update_xaxes(title_text="Share of total financing (%)", row=1, col=1)
+        fig.update_xaxes(title_text="Overall cost of capital", row=1, col=2)
+        fig.update_yaxes(title_text="Cost of capital (%)", row=1, col=1, range=[0, df["Cost of Capital"].max()])
+        fig.update_yaxes(row=1, col=2, range=[0, df["Cost of Capital"].max()])
+        
+        # Produce plotly chart
+        st.plotly_chart(fig)
+
+    def plot_comparison_chart(self, df):
+        # Melt dataframe
+        df = df.rename(columns={"Risk_Free":" Risk Free", "Country_Risk":"Country Risk", "Technology_Risk":"Technology Risk"})
+        data_melted = df.melt(id_vars="Year", var_name="Factor", value_name="Value")
+
+        # Set order
+        category_order = [' Risk Free', 'Country Risk', 'Equity Risk', 'Lenders Margin', 'Technology Risk']
+
+        # Create chart
+        chart = alt.Chart(data_melted).mark_bar().encode(
+            x=alt.X('sum(Value):Q', stack='zero', title='Weighted Average Cost of Capital (%)'),
+            y=alt.Y('Year:O', title='Country'),  # Sort countries by total value descending
+            color=alt.Color('Factor:N', title='Factor'),
+            order=alt.Order('Factor:O', sort="ascending"),  # Color bars by category
+    ).properties(width=700)
+        st.write(chart)
+
+    def plot_ranking_table_tech(self, raw_df, tech_codes):
+
+        # Select techs
+        df = raw_df[raw_df["Technology"].isin(tech_codes)]
+        df["Technology"].replace(self.tech_dict_reverse, inplace=True)
+
+        # Drop year
+        new_df = df.drop(columns=["Year", "Country code"])
+
+        # Melt dataframe
+        new_df = new_df.rename(columns={"Risk_Free":" Risk Free", "Country_Risk":"Country Risk", "Technology_Risk":"Technology Risk"})
+        data_melted = new_df.melt(id_vars="Technology", var_name="Factor", value_name="Value")
+
+        # Set order
+        category_order = [' Risk Free', 'Country Risk', 'Equity Risk', 'Lenders Margin', 'Technology Risk']
+
+        # Create chart
+        chart = alt.Chart(data_melted).mark_bar().encode(
+            x=alt.X('sum(Value):Q', stack='zero', title='Weighted Average Cost of Capital (%)'),
+            y=alt.Y('Technology:O', sort="x", title='Technology'),  # Sort technologies by total value descending
+            color=alt.Color('Factor:N', title='Factor').legend(orient="right", columns=3),
+            order=alt.Order('Factor:O', sort="ascending"),  # Color bars by category
+    ).properties(width=700)
+
+        # Add x-axis to the top
+        x_axis_top = chart.encode(
+            x=alt.X('sum(Value):Q', stack='zero', title='Weighted Average Cost of Capital (%)', axis=alt.Axis(orient='top'))
+        )
+
+        # Combine the original chart and the one with the top axis
+        chart_with_double_x_axis = alt.layer(
+            chart,
+            x_axis_top
+        )
+
+
+
+        st.write(chart_with_double_x_axis)

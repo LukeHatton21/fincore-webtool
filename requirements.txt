@@ -11,3 +11,6 @@ kaleido
 openpyxl
 matplotlib
 seaborn
+streamlit_toggle
+streamlit_vertical_slider
+plotly

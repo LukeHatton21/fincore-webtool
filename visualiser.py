@@ -1,5 +1,6 @@
 import streamlit as st
 import folium
+import math
 import pandas as pd
 import numpy as np
 from streamlit_folium import st_folium
@@ -146,7 +147,9 @@ class VisualiserClass:
         # Select countries
         df = raw_df[raw_df["Country code"].isin(country_codes)]
 
-        
+        # Drop year
+        df = df.drop(labels="Year", axis="columns")
+
         # Melt dataframe
         df = df.rename(columns={"Risk_Free":" Risk Free", "Country_Risk":"Country Risk", "Technology_Risk":"Technology Risk"})
         data_melted = df.melt(id_vars="Country code", var_name="Factor", value_name="Value")
@@ -335,6 +338,9 @@ class VisualiserClass:
         return shares_df
 
     def show_source_average(self, df, overall):
+        
+        def round_up_to_nearest_5(n):
+            return math.ceil(n / 5) * 5
 
         # Fix for the case where shares exceed 100
         df["Share"] = df["Share"] * 100 / df["Share"].sum()
@@ -367,8 +373,8 @@ class VisualiserClass:
         # Add in axis
         fig.update_xaxes(title_text="Share of total financing (%)", row=1, col=1)
         fig.update_xaxes(title_text="Overall cost of capital", row=1, col=2)
-        fig.update_yaxes(title_text="Cost of capital (%)", row=1, col=1, range=[0, df["Cost of Capital"].max()])
-        fig.update_yaxes(row=1, col=2, range=[0, df["Cost of Capital"].max()])
+        fig.update_yaxes(title_text="Cost of capital (%)", row=1, col=1, range=[0, round_up_to_nearest_5(df["Cost of Capital"].max())])
+        fig.update_yaxes(row=1, col=2, range=[0, round_up_to_nearest_5(df["Cost of Capital"].max())])
         
         # Produce plotly chart
         st.plotly_chart(fig)

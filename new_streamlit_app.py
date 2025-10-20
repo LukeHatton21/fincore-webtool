@@ -70,6 +70,7 @@ with tab4:
     selected_countries = st.multiselect("Countries to compare", options=yearly_waccs['Country code'].values, default=["USA", "IND", "GBR", "JPN", "CHN", "BRA"])
     sorted_waccs = visualiser.sort_waccs(yearly_waccs)
     visualiser.plot_ranking_table(sorted_waccs, selected_countries)
+
 with tab5: 
     st.header("Historical and Projected Estimates")
     

@@ -491,7 +491,7 @@ class WaccPredictor:
         shares_df.loc[shares_df["source"] == "International Public","Cost of Capital"] = public_int_wacc
         
         # Calculate the domestic commercial cost of capital and share
-        commercial_dom_wacc = self.calculator.convert_currencies(value=commercial_results["WACC"].values[0], country_code=country_code)
+        commercial_dom_wacc = self.calculator.convert_currencies(value=commercial_results["WACC"].values[0], country_code=country_code, year=year)
         commercial_dom_share = shares_df.loc[shares_df["source"] == "Domestic Commercial", "Share"].values[0]
         shares_df.loc[shares_df["source"] == "Domestic Commercial", "Cost of Capital"] = commercial_dom_wacc
 

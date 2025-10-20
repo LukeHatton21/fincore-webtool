@@ -264,18 +264,38 @@ class WaccCalculator:
         local_inflation = inflation.loc[inflation["Country code"] == country_code]
 
         # Calculate five year forward rates for USD
-        if year > 2025:
+        if int(year) > 2025:
             year = 2025
-        USD_inflation = USD_inflation[[str(year), str(year+1), str(year+2), str(year+3), str(year+4)]]
-        multipliers = ((100 + USD_inflation) / 100).prod(axis=1)
-        USD_inflation_compound = (multipliers / 100) ** (1 / 5) - 1
+        else:
+            year = int(year)
+        future_USD_inflation = USD_inflation[[str(year), str(year+1), str(year+2), str(year+3), str(year+4)]]
+        multipliers = ((100 + future_USD_inflation) / 100).prod(axis=1)
+        USD_inflation_compound = (multipliers) ** (1 / 5) - 1
 
         # Calculate five year forward rate in local
-        local_inflation = local_inflation[[str(year), str(year+1), str(year+2), str(year+3), str(year+4)]]
-        multipliers = ((100 + local_inflation) / 100).prod(axis=1)
-        local_inflation_compound = (multipliers / 100) ** (1 / 5) - 1
+        future_local_inflation = local_inflation[[str(year), str(year+1), str(year+2), str(year+3), str(year+4)]]
+        multipliers = ((100 + future_local_inflation) / 100).prod(axis=1)
+        local_inflation_compound = (multipliers) ** (1 / 5) - 1
+
+        # Calculate expected fx depreciation
+        local_exchange_rates = self.exchange_rates[["Country code", "ER_" + str(year-4), "ER_" + str(year-3), "ER_" + str(year-2), "ER_" + str(year-1), "ER_" + str(year)]]
+        local_exchange_rates = local_exchange_rates.loc[local_exchange_rates["Country code"]==country_code]
+        depreciation = local_exchange_rates["ER_"+str(year)] / local_exchange_rates["ER_"+str(year-4)]
+
+        # Calculate historical USD inflations 
+        historic_USD_inflation = USD_inflation[[str(year-4), str(year-3), str(year-2), str(year-1), str(year)]]
+        multipliers = ((100 + historic_USD_inflation) / 100).prod(axis=1)
+        USD_historic_inflation = (multipliers) ** (1 / 5) - 1
+
+        # Calculate historical local inflation
+        historic_local_inflation = local_inflation[[str(year-4), str(year-3), str(year-2), str(year-1), str(year)]]
+        multipliers = ((100 + historic_local_inflation) / 100).prod(axis=1)
+        local_historic_inflation = (multipliers) ** (1 / 5) - 1
+
+        # Calculate additional depreciation
+        expected_fx_depreciation = (depreciation / (1 + local_historic_inflation.values[0]) / (1 + USD_historic_inflation.values[0])) - 1
 
         # Convert between currencies
-        converted_value = (1 + value) * (1 + local_inflation_compound) / (1 + USD_inflation_compound)  - 1
+        converted_value = ((1 + value) * (1 + local_inflation_compound.values[0]) / (1 + USD_inflation_compound.values[0]) * (1 + expected_fx_depreciation.values[0]))  - 1
 
         return converted_value

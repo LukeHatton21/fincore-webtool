@@ -336,6 +336,9 @@ class VisualiserClass:
 
     def show_source_average(self, df, overall):
 
+        # Fix for the case where shares exceed 100
+        df["Share"] = df["Share"] * 100 / df["Share"].sum()
+        
         # Calculate the cumulative share
         df["cumulative_share"] = df["Share"].cumsum()
         df["Cost of Capital"].loc[df["Cost of Capital"]==0] = 0.1

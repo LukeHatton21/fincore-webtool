@@ -48,7 +48,8 @@ class WaccPredictor:
         self.ir_data = pd.read_csv(us_ir)
 
         # Call WaccCalculator Object
-        self.calculator = WaccCalculator(tech_premiums="./DATA/TechPremiums.csv", penetration_boundaries="./DATA/TechBoundaries.csv", maturity_premiums="./DATA/MaturityPremiums.csv")
+        self.calculator = WaccCalculator(tech_premiums="./DATA/TechPremiums.csv", penetration_boundaries="./DATA/TechBoundaries.csv", maturity_premiums="./DATA/MaturityPremiums.csv", 
+                                         exchange_rates="./DATA/ExchangeRates.csv", inflation="./DATA/IMF_Inflation_Rates.csv")
 
         # Get technologies
         self.technologies = self.calculator.tech_premiums["TECH"].values
@@ -490,7 +491,7 @@ class WaccPredictor:
         shares_df.loc[shares_df["source"] == "International Public","Cost of Capital"] = public_int_wacc
         
         # Calculate the domestic commercial cost of capital and share
-        commercial_dom_wacc = commercial_results["WACC"].values[0]
+        commercial_dom_wacc = self.calculator.convert_currencies(value=commercial_results["WACC"].values[0], country_code=country_code)
         commercial_dom_share = shares_df.loc[shares_df["source"] == "Domestic Commercial", "Share"].values[0]
         shares_df.loc[shares_df["source"] == "Domestic Commercial", "Cost of Capital"] = commercial_dom_wacc
 

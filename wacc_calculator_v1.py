@@ -4,7 +4,7 @@ import numpy as np
 import streamlit as st
 
 class WaccCalculator:
-    def __init__(self, tech_premiums, penetration_boundaries, maturity_premiums):
+    def __init__(self, tech_premiums, penetration_boundaries, maturity_premiums, exchange_rates, inflation):
         """ Initialises the WACC Calculator Class, which is used to calculate an estimate of the cost of capital at
          a national level for countries with available data for a specific technology
         
@@ -17,6 +17,8 @@ class WaccCalculator:
         self.tech_premiums = pd.read_csv(tech_premiums)
         self.penetration_boundaries = pd.read_csv(penetration_boundaries)
         self.maturity_premiums = pd.read_csv(maturity_premiums)
+        self.exchange_rates = pd.read_csv(exchange_rates)
+        self.inflation = pd.read_csv(inflation)
 
         # Set up initial assumptions
         self.lenders_margin = 2
@@ -250,3 +252,30 @@ class WaccCalculator:
 
 
         return tech_premium
+    
+
+    def convert_currencies(self, value, country_code, year):
+
+        # Extract inflation
+        inflation = self.inflation
+        
+        # Extract expected inflation
+        USD_inflation = inflation.loc[inflation["Country code"] == "USA"]
+        local_inflation = inflation.loc[inflation["Country code"] == country_code]
+
+        # Calculate five year forward rates for USD
+        if year > 2025:
+            year = 2025
+        USD_inflation = USD_inflation[[str(year), str(year+1), str(year+2), str(year+3), str(year+4)]]
+        multipliers = ((100 + USD_inflation) / 100).prod(axis=1)
+        USD_inflation_compound = (multipliers / 100) ** (1 / 5) - 1
+
+        # Calculate five year forward rate in local
+        local_inflation = local_inflation[[str(year), str(year+1), str(year+2), str(year+3), str(year+4)]]
+        multipliers = ((100 + local_inflation) / 100).prod(axis=1)
+        local_inflation_compound = (multipliers / 100) ** (1 / 5) - 1
+
+        # Convert between currencies
+        converted_value = (1 + value) * (1 + local_inflation_compound) / (1 + USD_inflation_compound)  - 1
+
+        return converted_value

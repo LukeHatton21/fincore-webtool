@@ -329,6 +329,48 @@ class WaccCalculator:
 
         return converted_value
 
+    def convert_currencies_usd_to_local_df(
+    self,
+    df,
+    value_col="Risk_Free",
+    country_col="Country_code",
+    year_col="year",
+    output_col="Local_Risk_Free"
+):
+        """
+        Converts USD-denominated rates in `value_col` to local currency rates row-by-row.
+
+        Expected columns in df:
+        - country_col (default: country_code)
+        - year_col (default: year)
+        - value_col (default: value)
+
+        Returns:
+        - copy of df with `output_col`
+        """
+
+        out = df.copy()
+
+        def _convert_row(row):
+            country_code = row[country_col]
+            year = row[year_col]
+            value = row[value_col]
+
+            if pd.isna(country_code) or pd.isna(year) or pd.isna(value):
+                return np.nan
+
+            try:
+                return self.convert_currencies_usd_to_local(
+                    value=float(value),
+                    country_code=str(country_code),
+                    year=int(year)
+                )
+            except Exception:
+                return np.nan
+
+        out[output_col] = out.apply(_convert_row, axis=1)
+        return out
+
     def convert_currencies_local_usd(self, value, country_code, year):
 
         # Extract inflation

@@ -28,6 +28,7 @@ country_names = sorted(visualiser.crp_dictionary.keys())
 tech_names = sorted(visualiser.tech_dictionary.keys())
 tech_names = [x for x in tech_names if x !="Other"]
 
+shares_df = visualiser.financing_inputs_sidebar()
 
 # Create title
 st.title("Financing Costs for Renewables Estimator (FinCoRE)")
@@ -54,19 +55,15 @@ with col2:
 
 
 # Set out input tabs and calculate the share of cost of capital
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["💸 Blended Finance", "📊 WACC", "🌐 Underlying Costs", "🥇Comparison", "🔭Projections", "🛠️Technologies", "📝 About"])
+tab2, tab1, tab3, tab4, tab5, tab6, tab7 = st.tabs(["💸 Blended Finance", "📊 WACC", "🌐 Underlying Costs", "🥇Comparison", "🔭Projections", "🛠️Technologies", "📝 About"])
 yearly_waccs = wacc_predictor.calculate_historical_waccs(year, technology)
-with tab1:
-    st.title("Ratio of Blended Finance")
-    st.write(f"Finance for energy projects can come from a range of sources, including both domestic and international financiers. It can also be directed through commercial or public sources, with some role for grant funding in certain markets. Set the blended finance ratios for {technology} in {year} here.")
-    shares_df = visualiser.vertical_sliders()
 with tab2:
     st.title("Weighted Cost of Capital")
     df, overall_cost, breakdown = wacc_predictor.calculate_weighted_average(shares_df=shares_df, year=year, technology=technology, 
                                                   country_code=country_selection, concessionality=concessionality, merchant_risk=merchant_risk, currency_risk=currency_risk)
     #df = pd.DataFrame(data={"source": ["International Commercial", "International Public", "Domestic Commercial", "Domestic Public", "Grant"], "Share": [25, 25, 20, 25, 5], "Cost of Capital": [10, 7, 8, 9, 0.1]})
     visualiser.show_source_average(df, overall=overall_cost)
-with tab3:
+with tab1:
     visualiser.plot_cost_components_breakdown(breakdown)
 with tab4:
     st.header("Global Estimates")

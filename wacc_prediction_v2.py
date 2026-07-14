@@ -490,6 +490,11 @@ class WaccPredictor:
         if concessionality is None:
             concessionality = "Commercial Rate"
         
+        # Ensure numeric columns
+            shares_df = shares_df.copy()
+            shares_df["Share"] = pd.to_numeric(shares_df["Share"], errors="coerce").fillna(0.0)
+            shares_df["Debt_Share"] = pd.to_numeric(shares_df["Debt_Share"], errors="coerce").fillna(0.0)
+
         # Calculate the international commercial cost of capital and share
         if int(year) > 2024:
             commercial_results = self.calculate_future_wacc(year, technology, country_code,  
@@ -503,64 +508,73 @@ class WaccPredictor:
         currency_risk_premium = currency_risk_estimates["currency_risk_premium"] * 100
         
         # Extract underlying parameters
-        breakdown = self.calculate_cost_components(commercial_results, shares_df.source.values, concessionality, currency_risk_premium, merchant_risk=merchant_risk, currency_risk=currency_risk)
+        breakdown = self.calculate_cost_components(commercial_results, shares_df.source.values, concessionality,
+                                                    currency_risk_premium, merchant_risk=merchant_risk, currency_risk=currency_risk, year=year, country_code=country_code)
 
         # Calculate the cost of capital from each source, first extract key parameters
         tax_rate= commercial_results["Tax_Rate"].values[0] / 100
-        debt_share = commercial_results["Debt_Share"].values[0] / 100
-        
-        # Calculate
-        public_int_wacc = (1 - tax_rate) * debt_share * (pd.to_numeric(breakdown.loc["Debt - International Public"], errors="coerce").sum()) + (1 - debt_share) * (pd.to_numeric(breakdown.loc["Equity - International Public"], errors="coerce").sum())
-        public_dom_wacc = (1 - tax_rate) * debt_share * (pd.to_numeric(breakdown.loc["Debt - Domestic Public"], errors="coerce").sum()) + (1 - debt_share) * (pd.to_numeric(breakdown.loc["Equity - Domestic Public"], errors="coerce").sum())
-        commercial_dom_wacc = (1 - tax_rate) * debt_share * (pd.to_numeric(breakdown.loc["Debt - Domestic Commercial"], errors="coerce").sum()) + (1 - debt_share) * (pd.to_numeric(breakdown.loc["Equity - Domestic Commercial"], errors="coerce").sum())
-        commercial_int_wacc = (1 - tax_rate) * debt_share * (pd.to_numeric(breakdown.loc["Debt - International Commercial"], errors="coerce").sum()) + (1 - debt_share) * (pd.to_numeric(breakdown.loc["Equity - International Commercial"], errors="coerce").sum())
+        source_order = [
+        "International Commercial",
+        "International Public",
+        "Domestic Commercial",
+        "Domestic Public",
+        "Grant",
+        ]
 
-        commercial_int_share = shares_df.loc[shares_df["source"] == "International Commercial", "Share"].values[0]
-        shares_df.loc[shares_df["source"] == "International Commercial","Cost of Capital"] = commercial_int_wacc
-        
-        # Calculate the international public finance cost of capital and share
-        if concessionality == "Commercial Rate":
-            concessionality = 0
-        else:
-            concessionality = int(concessionality)
-        public_int_share = shares_df.loc[shares_df["source"] == "International Public", "Share"].values[0]
-        shares_df.loc[shares_df["source"] == "International Public","Cost of Capital"] = public_int_wacc
-        
-        # Calculate the domestic commercial cost of capital and share
-        #commercial_dom_wacc = self.calculator.convert_currencies(value=commercial_results["WACC"].values[0], country_code=country_code, year=year)
-        commercial_dom_share = shares_df.loc[shares_df["source"] == "Domestic Commercial", "Share"].values[0]
-        shares_df.loc[shares_df["source"] == "Domestic Commercial", "Cost of Capital"] = commercial_dom_wacc
+        # Prepare output columns
+        shares_df["Cost_of_Debt"] = 0.0
+        shares_df["Cost_of_Equity"] = 0.0
+        shares_df["Cost_of_Capital"] = 0.0
 
-        # Calculate the domestic public cost of capital and share
-        public_dom_share = shares_df.loc[shares_df["source"] == "Domestic Public", "Share"].values[0]
-        shares_df.loc[shares_df["source"] == "Domestic Public","Cost of Capital"] = public_dom_wacc
+        for src in source_order:
+            mask = shares_df["source"] == src
+            if not mask.any():
+                continue
 
-        # Calculate grant share
-        grant_share = shares_df.loc[shares_df["source"] == "Grant", "Share"].values[0]
-        shares_df.loc[shares_df["source"] == "Grant","Cost of Capital"] = 0
+            if src == "Grant":
+                cost_debt = 0.0
+                cost_equity = 0.0
+                wacc_src = 0.0
+            else:
+                cost_debt = pd.to_numeric(breakdown.loc[f"Debt - {src}"], errors="coerce").sum()
+                cost_equity = pd.to_numeric(breakdown.loc[f"Equity - {src}"], errors="coerce").sum()
+
+                debt_share = float(shares_df.loc[mask, "Debt_Share"].values[0]) / 100.0
+                debt_share = min(max(debt_share, 0.0), 1.0)
+
+                wacc_src = (1.0 - tax_rate) * cost_debt * debt_share + (1.0 - debt_share) * cost_equity
+
+            shares_df.loc[mask, "Cost_of_Debt"] = cost_debt
+            shares_df.loc[mask, "Cost_of_Equity"] = cost_equity
+            shares_df.loc[mask, "Cost_of_Capital"] = wacc_src
+        
 
         # Calculate the overall cost of capital
-        overall_cost = (commercial_int_wacc * commercial_int_share + public_int_wacc * public_int_share + \
-                        commercial_dom_wacc * commercial_dom_share + public_dom_wacc * public_dom_share + \
-                        0 * grant_share)/(commercial_int_share + public_int_share + commercial_dom_share + \
-                                          public_dom_share + grant_share)
+        total_share = shares_df["Share"].sum()
+        if total_share > 0:
+            w = shares_df["Share"] / total_share
+            overall_cost = float((w * shares_df["Cost_of_Capital"]).sum())
+        else:
+            overall_cost = np.nan
 
+        shares_df["Debt_Contribution"] = shares_df["Share"] * shares_df["Debt_Share"] / 100.0
+        shares_df["Equity_Contribution"] = shares_df["Share"] * (100.0 - shares_df["Debt_Share"]) / 100.0
 
         return shares_df, overall_cost, breakdown
     
 
 
-    def calculate_cost_components(self, data, sources, concessionality, currency_risk_premium, currency_risk=None, merchant_risk=None):
+    def calculate_cost_components(self, data, sources, concessionality, currency_risk_premium, year, country_code, currency_risk=None, merchant_risk=None):
 
         # Set up dataframe
         debt_cost_components_df = pd.DataFrame(index=sources, columns=[
             'Country code', 'Risk Free Rate', 'Country Risk Premium', 'Country Default Spread', 
-            'Equity Risk Premium', 'Technology Risk Premium', 'Immaturity Premium', 'Concessionality', "Merchant Risk"
+            'Equity Risk Premium', 'Technology Risk Premium', 'Immaturity Premium', 'Concessionality', "Merchant Risk", 'Year'
         ])
         
         equity_cost_components_df = pd.DataFrame(index=sources, columns=[
             'Country code', 'Risk Free Rate', 'Country Risk Premium', 'Country Default Spread', 
-            'Equity Risk Premium', 'Technology Risk Premium', 'Immaturity Premium', "Merchant Risk", 'Concessionality'
+            'Equity Risk Premium', 'Technology Risk Premium', 'Immaturity Premium', "Merchant Risk", 'Concessionality', 'Year'
         ])
         equity_weighting = 1.35
         if concessionality == "Commercial Rate":
@@ -574,6 +588,12 @@ class WaccPredictor:
             currency_risk_premium = currency_risk_premium
         else:
             currency_risk_premium = 0
+
+        # Convert from global to international risk free rate
+        data["year"] = year
+        data["Country_code"] = country_code
+        data = self.calculator.convert_currencies_usd_to_local_df(df=data)
+
         
         # For each source, set the debt cost components
         for source in sources:
@@ -598,7 +618,7 @@ class WaccPredictor:
                 debt_cost_components_df.loc[source, 'Country Default Spread'] = data["CDS"].values[0]
             elif source == "Domestic Commercial":
                 debt_cost_components_df.loc[source, 'Country code'] = data["Country code"].values[0]
-                debt_cost_components_df.loc[source, 'Risk Free Rate'] = data["Risk_Free"].values[0]
+                debt_cost_components_df.loc[source, 'Risk Free Rate'] = data["Local_Risk_Free"].values[0]
                 debt_cost_components_df.loc[source, 'Country Default Spread'] = 0
                 debt_cost_components_df.loc[source, 'Technology Risk Premium'] = data["Tech_Premium"].values[0]
                 debt_cost_components_df.loc[source, 'Immaturity Premium'] = data["Lenders Margin"].values[0]
@@ -629,7 +649,7 @@ class WaccPredictor:
                 equity_cost_components_df.loc[source, 'Country Default Spread'] = data["CDS"].values[0] * equity_weighting
             elif source == "Domestic Commercial":
                 equity_cost_components_df.loc[source, 'Country code'] = data["Country code"].values[0]
-                equity_cost_components_df.loc[source, 'Risk Free Rate'] = data["Risk_Free"].values[0]
+                equity_cost_components_df.loc[source, 'Risk Free Rate'] = data["Local_Risk_Free"].values[0]
                 equity_cost_components_df.loc[source, 'Country Default Spread'] = 0
                 equity_cost_components_df.loc[source, 'Technology Risk Premium'] = data["Tech_Premium"].values[0]
                 equity_cost_components_df.loc[source, 'Immaturity Premium'] = float(data["Lenders Margin"].values[0])
@@ -642,7 +662,7 @@ class WaccPredictor:
         merged_cost_components_df = pd.concat([debt_cost_components_df, equity_cost_components_df])
 
         # Reshape so that year is the variable
-        st.write(self.gfdd_dcps)
+        #st.write(self.gfdd_dcps)
         
         return merged_cost_components_df
 

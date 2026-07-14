@@ -133,50 +133,100 @@ class VisualiserClass:
         
         return sorted_df
 
+    def financing_inputs_sidebar(self):
+        sources = [
+        "International Commercial",
+        "International Public",
+        "Domestic Commercial",
+        "Domestic Public",
+        "Grant"
+    ]
 
-    @st.cache_data
-    def get_selected_country(self,df, country_code):
+        # ---------- defaults ----------
+        default_share = {s: 20.0 for s in sources}
+        default_debt = {
+            "International Commercial": 70.0,
+            "International Public": 50.0,
+            "Domestic Commercial": 65.0,
+            "Domestic Public": 45.0,
+            "Grant": 0.0
+        }
 
-        selected_wacc = df[df['Country code'] == country_code]
+        if "source_share_state" not in st.session_state:
+            st.session_state.source_share_state = default_share.copy()
+        if "debt_share_state" not in st.session_state:
+            st.session_state.debt_share_state = default_debt.copy()
 
-        return selected_wacc
+        st.sidebar.markdown("## Financing Inputs")
+        st.sidebar.caption("Set overall source shares and debt share per source.")
 
+        # ---------- actions FIRST (before widgets) ----------
+        total_share_pre = sum(st.session_state.source_share_state.values())
 
-    def plot_ranking_table(self, raw_df, country_codes):
+        a, b = st.sidebar.columns(2)
+        normalize_clicked = a.button("Normalize to 100%", use_container_width=True)
+        reset_clicked = b.button("Reset defaults", use_container_width=True)
 
-        # Select countries
-        df = raw_df[raw_df["Country code"].isin(country_codes)]
+        if reset_clicked:
+            st.session_state.source_share_state = default_share.copy()
+            st.session_state.debt_share_state = default_debt.copy()
+            st.rerun()
 
-        # Drop year
-        df = df.drop(labels="Year", axis="columns")
+        if normalize_clicked and total_share_pre > 0:
+            st.session_state.source_share_state = {
+                s: (v * 100.0 / total_share_pre)
+                for s, v in st.session_state.source_share_state.items()
+            }
+            st.rerun()
 
-        # Melt dataframe
-        df = df.rename(columns={"Risk_Free":" Risk Free", "Country_Risk":"Country Risk", "Technology_Risk":"Technology Risk"})
-        data_melted = df.melt(id_vars="Country code", var_name="Factor", value_name="Value")
+        # ---------- widgets ----------
+        for s in sources:
+            c1, c2 = st.sidebar.columns([1.7, 1.9])
 
-        # Set order
-        category_order = [' Risk Free', 'Country Risk', 'Equity Risk', 'Lenders Margin', 'Technology Risk']
+            with c1:
+                val = st.number_input(
+                    f"{s} share (%)",
+                    min_value=0.0,
+                    max_value=100.0,
+                    step=1.0,
+                    value=float(st.session_state.source_share_state[s]),
+                    key=f"num_share_{s}"
+                )
+                st.session_state.source_share_state[s] = float(val)
 
-        # Create chart
-        chart = alt.Chart(data_melted).mark_bar().encode(
-            x=alt.X('sum(Value):Q', stack='zero', title='Weighted Average Cost of Capital (%)'),
-            y=alt.Y('Country code:O', sort="x", title='Country'),  # Sort countries by total value descending
-            color=alt.Color('Factor:N', title='Factor'),
-            order=alt.Order('Factor:O', sort="ascending"),  # Color bars by category
-    ).properties(width=700)
+            with c2:
+                if s == "Grant":
+                    st.write("No debt")
+                    st.session_state.debt_share_state[s] = 0.0
+                else:
+                    dval = st.slider(
+                        f"{s} debt share (%)",
+                        min_value=0.0,
+                        max_value=100.0,
+                        step=1.0,
+                        value=float(st.session_state.debt_share_state[s]),
+                        key=f"sld_debt_{s}"
+                    )
+                    st.session_state.debt_share_state[s] = float(dval)
 
-        # Add x-axis to the top
-        x_axis_top = chart.encode(
-            x=alt.X('sum(Value):Q', stack='zero', title='Weighted Average Cost of Capital (%)', axis=alt.Axis(orient='top'))
-        )
+        # ---------- validation ----------
+        total_share = sum(st.session_state.source_share_state.values())
+        st.sidebar.markdown(f"**Total source share:** {total_share:.1f}%")
+        if abs(total_share - 100.0) > 1e-9:
+            st.sidebar.warning("Shares do not sum to 100%. Click 'Normalize to 100%'.")
 
-        # Combine the original chart and the one with the top axis
-        chart_with_double_x_axis = alt.layer(
-            chart,
-            x_axis_top
-        )
+        # ---------- output ----------
+        shares_df = pd.DataFrame({
+            "source": sources,
+            "Share": [st.session_state.source_share_state[s] for s in sources],
+            "Debt_Share": [st.session_state.debt_share_state[s] for s in sources]
+        })
 
-        st.write(chart_with_double_x_axis)
+        shares_df["Equity_Share"] = 100.0 - shares_df["Debt_Share"]
+        shares_df["Debt_Contribution"] = shares_df["Share"] * shares_df["Debt_Share"] / 100.0
+        shares_df["Equity_Contribution"] = shares_df["Share"] * shares_df["Equity_Share"] / 100.0
+
+        return shares_df
 
     def plot_comparison_chart(self, df):
     # Melt dataframe
@@ -347,7 +397,7 @@ class VisualiserClass:
         
         # Calculate the cumulative share
         df["cumulative_share"] = df["Share"].cumsum()
-        df["Cost of Capital"].loc[df["Cost of Capital"]==0] = 0.1
+        df["Cost_of_Capital"].loc[df["Cost_of_Capital"]==0] = 0.1
         # Create figure
         fig = make_subplots(rows=1, cols=2, column_widths=[0.85, 0.15])
         
@@ -355,7 +405,7 @@ class VisualiserClass:
         for index, row in df.iterrows():
             fig.add_trace(go.Bar(
             name=row["source"],
-            y=[row["Cost of Capital"]],
+            y=[row["Cost_of_Capital"]],
             x=[row["cumulative_share"]-row["Share"]],
             width=[row["Share"]],
             offset=0),
@@ -373,8 +423,8 @@ class VisualiserClass:
         # Add in axis
         fig.update_xaxes(title_text="Share of total financing (%)", row=1, col=1)
         fig.update_xaxes(title_text="Overall cost of capital", row=1, col=2)
-        fig.update_yaxes(title_text="Cost of capital (%)", row=1, col=1, range=[0, round_up_to_nearest_5(df["Cost of Capital"].max())])
-        fig.update_yaxes(row=1, col=2, range=[0, round_up_to_nearest_5(df["Cost of Capital"].max())])
+        fig.update_yaxes(title_text="Cost of capital (%)", row=1, col=1, range=[0, round_up_to_nearest_5(df["Cost_of_Capital"].max())])
+        fig.update_yaxes(row=1, col=2, range=[0, round_up_to_nearest_5(df["Cost_of_Capital"].max())])
         
         # Produce plotly chart
         st.plotly_chart(fig)
@@ -591,3 +641,39 @@ class VisualiserClass:
         fig.update_yaxes(range=[y_min, y_max], row=1, col=2)
         
         st.plotly_chart(fig)
+
+    def plot_ranking_table(self, raw_df, country_codes):
+
+        # Select countries
+        df = raw_df[raw_df["Country code"].isin(country_codes)]
+
+        # Drop year
+        df = df.drop(labels="Year", axis="columns")
+
+        # Melt dataframe
+        df = df.rename(columns={"Risk_Free":" Risk Free", "Country_Risk":"Country Risk", "Technology_Risk":"Technology Risk"})
+        data_melted = df.melt(id_vars="Country code", var_name="Factor", value_name="Value")
+
+        # Set order
+        category_order = [' Risk Free', 'Country Risk', 'Equity Risk', 'Lenders Margin', 'Technology Risk']
+
+        # Create chart
+        chart = alt.Chart(data_melted).mark_bar().encode(
+            x=alt.X('sum(Value):Q', stack='zero', title='Weighted Average Cost of Capital (%)'),
+            y=alt.Y('Country code:O', sort="x", title='Country'),  # Sort countries by total value descending
+            color=alt.Color('Factor:N', title='Factor'),
+            order=alt.Order('Factor:O', sort="ascending"),  # Color bars by category
+    ).properties(width=700)
+
+        # Add x-axis to the top
+        x_axis_top = chart.encode(
+            x=alt.X('sum(Value):Q', stack='zero', title='Weighted Average Cost of Capital (%)', axis=alt.Axis(orient='top'))
+        )
+
+        # Combine the original chart and the one with the top axis
+        chart_with_double_x_axis = alt.layer(
+            chart,
+            x_axis_top
+        )
+
+        st.write(chart_with_double_x_axis)

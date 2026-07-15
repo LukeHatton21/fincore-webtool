@@ -666,7 +666,6 @@ class WaccPredictor:
         
         return merged_cost_components_df
 
-        
 
 
-        
+    

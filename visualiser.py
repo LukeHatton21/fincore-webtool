@@ -12,6 +12,7 @@ from  streamlit_vertical_slider import vertical_slider
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+
 class VisualiserClass:
     def __init__(self, crp_data, tech_premium):
         """ Initialises the VisualiserClass, which is used to generate plots for the webtool """
@@ -36,70 +37,108 @@ class VisualiserClass:
     def inverse_dict(self, dictionary):
         inv_dict = {v: k for k, v in dictionary.items()}
         return inv_dict
+
+    def select_finance_metric(self):
+
+        instrument = st.selectbox(
+            "Instrument",
+            options=["CoD", "CoE"],
+            index=0
+        )
+
+        source = st.selectbox(
+            "Source of finance",
+            options=[
+                "International Commercial",
+                "International Public",
+                "Domestic Commercial",
+                "Domestic Public",
+                "Grant"
+            ],
+            index=0
+        )
+
+        selected_col = f"{instrument}_{source.replace(' ', '_')}"
+        label = f"{instrument} - {source}"
+
+        return instrument, source, selected_col, label
     
-    def display_map(self, df, technology):
-        map = folium.Map(location=[10, 0], zoom_start=1, control_scale=True, scrollWheelZoom=True, tiles='CartoDB positron')
-        df = df.rename(columns={"Country code":"iso3_code"})
+    def display_finance_map(self, df, value_col, value_label):
+        def _safe_scalar(df_indexed, iso3, col, agg="mean"):
+            if iso3 not in df_indexed.index or col not in df_indexed.columns:
+                return None
+            v = df_indexed.loc[iso3, col]
+            # If duplicate index -> Series
+            if isinstance(v, pd.Series):
+                v = pd.to_numeric(v, errors="coerce")
+                if agg == "first":
+                    v = v.dropna().iloc[0] if not v.dropna().empty else np.nan
+                else:
+                    v = v.mean()
+            else:
+                v = pd.to_numeric(v, errors="coerce")
+            return None if pd.isna(v) else float(v)
+        map_obj = folium.Map(
+            location=[10, 0],
+            zoom_start=1,
+            control_scale=True,
+            scrollWheelZoom=True,
+            tiles="CartoDB positron"
+        )
+
+        map_df = df.copy()
+        map_df = map_df.rename(columns={"Country code": "iso3_code"})
+
+        # keep required cols if present
+        keep_cols = ["iso3_code", value_col, "Tax_Rate"]
+        keep_cols = [c for c in keep_cols if c in map_df.columns]
+        map_df = map_df[keep_cols]
 
         choropleth = folium.Choropleth(
-            geo_data='./DATA/country_boundaries.geojson',
-            data=df,
-            columns=('iso3_code', "WACC"),
-            key_on='feature.properties.iso3_code',
+            geo_data="./DATA/country_boundaries.geojson",
+            data=map_df,
+            columns=("iso3_code", value_col),
+            key_on="feature.properties.iso3_code",
             line_opacity=0.8,
             highlight=True,
             fill_color="YlGnBu",
-            nan_fill_color = "grey",
-            legend_name="Weighted Average Cost of Capital (%)"
+            nan_fill_color="grey",
+            legend_name=f"{value_label} (%)",
         )
-        choropleth.geojson.add_to(map)
+        choropleth.geojson.add_to(map_obj)
 
+        df_indexed = map_df.set_index("iso3_code")
 
-        df_indexed = df.set_index('iso3_code')
-        df_indexed = df_indexed.dropna(subset="WACC")
-        for feature in choropleth.geojson.data['features']:
-            iso3_code = feature['properties']['iso3_code']
-            feature['properties'][technology + ' WACC'] = (
-            f"{df_indexed.loc[iso3_code, 'WACC']:0.2f}%" if iso3_code in df_indexed.index else "N/A"
-        )
-            feature['properties']["Debt_Share"] = (
-            f"{df_indexed.loc[iso3_code, 'Debt_Share']:0.2f}%" if iso3_code in df_indexed.index else "N/A"
-        )
-            feature['properties']["Equity_Cost"] = (
-            f"{df_indexed.loc[iso3_code, 'Equity_Cost']:0.2f}%" if iso3_code in df_indexed.index else "N/A"
-        )
-            feature['properties']["Debt_Cost"] = (
-            f"{df_indexed.loc[iso3_code, 'Debt_Cost']:0.2f}%" if iso3_code in df_indexed.index else "N/A"
-        )
-            feature['properties']["Tax_Rate"] = (
-            f"{df_indexed.loc[iso3_code, 'Tax_Rate']:0.2f}%" if iso3_code in df_indexed.index else "N/A"
-        )
-            #feature['properties']['GDP'] = 'GDP: ' + '{:,}'.format(df_indexed.loc[country_name, 'State Pop'][0]) if country_name in list(df_indexed.index) else ''
+        for feature in choropleth.geojson.data["features"]:
+            iso3 = feature["properties"]["iso3_code"]
 
-        #choropleth.geojson.add_child(
-            #folium.features.GeoJsonTooltip(['english_short'], labels=False)
-        #)
+            val = _safe_scalar(df_indexed, iso3, value_col, agg="mean")
+            tax = _safe_scalar(df_indexed, iso3, "Tax_Rate", agg="mean")
+
+            feature["properties"][value_label] = f"{val:.2f}%" if val is not None else "N/A"
+            feature["properties"]["Tax_Rate"] = f"{tax:.2f}%" if tax is not None else "N/A"
 
         choropleth.geojson.add_child(
-        folium.features.GeoJsonTooltip(
-            fields=['english_short', technology + ' WACC', "Equity_Cost", "Debt_Cost", "Debt_Share", "Tax_Rate"],  # Display these fields
-            aliases=["Country:", technology + ":", "Cost of Equity:", "Cost of Debt:", "Debt Share:", "Tax_Rate"],         # Display names for the fields
-            localize=True,
-            style="""
-            background-color: #F0EFEF;
-            border: 2px solid black;
-            border-radius: 3px;
-            box-shadow: 3px;
-        """,
-        max_width=400,
+            folium.features.GeoJsonTooltip(
+                fields=["english_short", value_label, "Tax_Rate"],
+                aliases=["Country:", f"{value_label}:", "Tax Rate:"],
+                localize=True,
+                style="""
+                    background-color: #F0EFEF;
+                    border: 2px solid black;
+                    border-radius: 3px;
+                    box-shadow: 3px;
+                """,
+                max_width=400,
+            )
         )
-    )
-        
-        st_map = st_folium(map, width=700, height=350)
 
-        country_name = ''
-        if st_map['last_active_drawing']:
-            country_name = st_map['last_active_drawing']['properties']['english_short']
+        st_map = st_folium(map_obj, width=900, height=420)
+
+        country_name = ""
+        if st_map and st_map.get("last_active_drawing"):
+            country_name = st_map["last_active_drawing"]["properties"].get("english_short", "")
+
         return country_name
 
 
@@ -677,3 +716,264 @@ class VisualiserClass:
         )
 
         st.write(chart_with_double_x_axis)
+
+    def plot_cost_components_from_underlying(
+    self,
+    underlying_data,
+    concessionality,
+    currency_risk=False,
+    merchant_risk=False,
+    currency_risk_col="Currency_Risk_Premium"
+):
+
+        if underlying_data is None or underlying_data.empty:
+            st.warning("No underlying data available for breakdown plot.")
+            return
+
+        # Use first row (single scenario expected)
+        row = underlying_data.iloc[0]
+
+        # ---- Parameters (same as calculate_cost_of_capital) ----
+        equity_weighting = 1.35
+        merchant_risk_value = 2.0 if merchant_risk else 0.0
+        merchant_risk_weighting = 1.5
+        conc = 0.0 if concessionality == "Commercial Rate" else float(concessionality)
+        local_country_passthrough = 0.75
+        int_country_passthrough = 0.51
+
+        # ---- Base terms ----
+        riskfree_g = float(pd.to_numeric(row.get("Risk_Free", 0.0), errors="coerce"))
+        riskfree_l = float(pd.to_numeric(row.get("Local_Risk_Free", riskfree_g), errors="coerce"))
+        cds = float(pd.to_numeric(row.get("CDS", 0.0), errors="coerce"))
+        erp = float(pd.to_numeric(row.get("ERP", 0.0), errors="coerce"))
+
+        # Handle your naming variants safely
+        tp = row.get("Technology_Premium", row.get("Tech_Premium", 0.0))
+        tp = float(pd.to_numeric(tp, errors="coerce"))
+        lm = float(pd.to_numeric(row.get("Lenders_Margin", row.get("Lenders Margin", 0.0)), errors="coerce"))
+
+        if currency_risk and (currency_risk_col in underlying_data.columns):
+            crfx = float(pd.to_numeric(row.get(currency_risk_col, 0.0), errors="coerce"))
+        else:
+            crfx = 0.0
+
+        # ---- Build component dicts ----
+        debt_components = {
+            "International Commercial": {
+                "Risk Free Rate": riskfree_g,
+                "Country Default Spread": int_country_passthrough * cds,
+                "Technology Risk Premium": tp,
+                "Merchant Risk": merchant_risk_value,
+                "Currency Risk Premium": crfx,
+            },
+            "International Public": {
+                "Risk Free Rate": riskfree_g,
+                "Country Default Spread": int_country_passthrough * cds,
+                "Technology Risk Premium": tp,
+                "Concessionality": -conc,
+                "Merchant Risk": merchant_risk_value,
+                "Currency Risk Premium": crfx,
+            },
+            "Domestic Commercial": {
+                "Risk Free Rate": riskfree_l,
+                "Country Default Spread": local_country_passthrough * cds,
+                "Technology Risk Premium": tp,
+                "Immaturity Premium": lm,
+                "Merchant Risk": merchant_risk_value,
+            },
+            "Domestic Public": {
+                "Risk Free Rate": riskfree_g,
+                "Country Default Spread": cds,
+            },
+            "Grant": {}
+        }
+
+        equity_components = {
+            "International Commercial": {
+                "Risk Free Rate": riskfree_g,
+                "Equity Risk Premium": erp,
+                "Country Default Spread": int_country_passthrough * cds * equity_weighting,
+                "Technology Risk Premium": tp,
+                "Merchant Risk": merchant_risk_value * merchant_risk_weighting,
+                "Currency Risk Premium": crfx,
+            },
+            "International Public": {
+                "Risk Free Rate": riskfree_g,
+                "Equity Risk Premium": erp,
+                "Country Default Spread": int_country_passthrough * cds * equity_weighting,
+                "Technology Risk Premium": tp,
+                "Concessionality": -conc,
+                "Merchant Risk": merchant_risk_value * merchant_risk_weighting,
+                "Currency Risk Premium": crfx,
+            },
+            "Domestic Commercial": {
+                "Risk Free Rate": riskfree_l,
+                "Equity Risk Premium": erp,
+                "Country Default Spread": local_country_passthrough * cds * equity_weighting,
+                "Technology Risk Premium": tp,
+                "Immaturity Premium": lm,
+                "Merchant Risk": merchant_risk_value * merchant_risk_weighting,
+            },
+            "Domestic Public": {
+                "Risk Free Rate": riskfree_g,
+                "Country Default Spread": cds * equity_weighting,
+            },
+            "Grant": {}
+        }
+
+        # ---- Colors ----
+        color_map = {
+            "Risk Free Rate": "blue",
+            "Country Risk": "green",
+            "Immaturity Premium": "crimson",
+            "Concessionality": "magenta",
+            "Country Default Spread": "red",
+            "Equity Risk Premium": "orange",
+            "Technology Risk Premium": "purple",
+            "Maturity Premium": "brown",
+            "Merchant Risk": "pink",
+            "Currency Risk Premium": "gray",
+        }
+
+        def format_label(label):
+            label = label.replace("International Commercial", "International<br>Commercial")
+            label = label.replace("Domestic Commercial", "Domestic<br>Commercial")
+            label = label.replace("International Public", "International<br>Public")
+            label = label.replace("Domestic Public", "Domestic<br>Public")
+            if "<br>" not in label and " " in label:
+                parts = label.split(" ")
+                mid = len(parts) // 2
+                label = "<br>".join([" ".join(parts[:mid]), " ".join(parts[mid:])])
+            return label
+
+        # ---- Plot ----
+        fig = make_subplots(rows=1, cols=2, subplot_titles=("Debt Cost Components", "Equity Cost Components"))
+        shown_legends = set()
+
+        # ---- debt stacked bars ----
+        debt_x = []
+        debt_totals = []
+        for src, comps in debt_components.items():
+            debt_x.append(format_label(src))
+            vals = [v for v in comps.values() if not pd.isna(v)]
+            debt_totals.append(sum(vals) if vals else 0.0)
+
+            pos_base, neg_base = 0.0, 0.0
+            for comp, val in comps.items():
+                if pd.isna(val):
+                    continue
+                base = pos_base if val >= 0 else neg_base
+                if val >= 0:
+                    pos_base += val
+                else:
+                    neg_base += val
+
+                show_legend = comp not in shown_legends
+                if show_legend:
+                    shown_legends.add(comp)
+
+                fig.add_trace(
+                    go.Bar(
+                        x=[format_label(src)],
+                        y=[val],
+                        base=base,
+                        name=comp,
+                        marker_color=color_map.get(comp, "gray"),
+                        showlegend=show_legend,
+                        customdata=[val],
+                        hovertemplate="<b>%{fullData.name}</b><br>Component: %{customdata:.2f}%<extra></extra>",
+                    ),
+                    row=1, col=1
+                )
+
+        # ---- debt total markers (hoverable) ----
+        fig.add_trace(
+            go.Scatter(
+                x=debt_x,
+                y=debt_totals,
+                mode="markers",
+                name="Total Cost of Debt",
+                marker=dict(symbol="diamond", size=10, color="lightblue"),
+                customdata=debt_totals,
+                hovertemplate="<b>Total Cost of Debt</b><br>%{x}<br>Total: %{customdata:.2f}%<extra></extra>",
+            ),
+            row=1, col=1
+        )
+
+        # ---- equity stacked bars ----
+        equity_x = []
+        equity_totals = []
+        for src, comps in equity_components.items():
+            equity_x.append(format_label(src))
+            vals = [v for v in comps.values() if not pd.isna(v)]
+            equity_totals.append(sum(vals) if vals else 0.0)
+
+            pos_base, neg_base = 0.0, 0.0
+            for comp, val in comps.items():
+                if pd.isna(val):
+                    continue
+                base = pos_base if val >= 0 else neg_base
+                if val >= 0:
+                    pos_base += val
+                else:
+                    neg_base += val
+
+                show_legend = comp not in shown_legends
+                if show_legend:
+                    shown_legends.add(comp)
+
+                fig.add_trace(
+                    go.Bar(
+                        x=[format_label(src)],
+                        y=[val],
+                        base=base,
+                        name=comp,
+                        marker_color=color_map.get(comp, "gray"),
+                        showlegend=show_legend,
+                        customdata=[val],
+                        hovertemplate="<b>%{fullData.name}</b><br>Component: %{customdata:.2f}%<extra></extra>",
+                    ),
+                    row=1, col=2
+                )
+
+        # ---- equity total markers (hoverable) ----
+        fig.add_trace(
+            go.Scatter(
+                x=equity_x,
+                y=equity_totals,
+                mode="markers",
+                name="Total Cost of Equity",
+                marker=dict(symbol="diamond", size=10, color="lightblue"),
+                customdata=equity_totals,
+                hovertemplate="<b>Total Cost of Equity</b><br>%{x}<br>Total: %{customdata:.2f}%<extra></extra>",
+            ),
+            row=1, col=2
+        )
+
+        # shared y range
+        all_totals = debt_totals + equity_totals
+        if all_totals:
+            y_min = min(min(all_totals), 0)
+            y_max = max(all_totals)
+            pad = (y_max - y_min) * 0.1 if y_max != y_min else 1.0
+            y_range = [y_min - pad, y_max + pad]
+            fig.update_yaxes(range=y_range, row=1, col=1)
+            fig.update_yaxes(range=y_range, row=1, col=2)
+
+        fig.update_layout(
+            barmode="stack",
+            title_text="Cost Components Breakdown",
+            xaxis=dict(tickangle=0, automargin=True),
+            xaxis2=dict(tickangle=0, automargin=True),
+            legend=dict(
+                orientation="h",
+                x=0.5,
+                y=-0.5,
+                xanchor="center",
+                yanchor="bottom",
+                traceorder="normal",
+            ),
+            margin=dict(t=80),
+        )
+
+        st.plotly_chart(fig, use_container_width=True)

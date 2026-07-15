@@ -2,6 +2,7 @@ import xarray as xr
 import pandas as pd
 import numpy as np
 import streamlit as st
+import itertools
 
 class WaccCalculator:
     def __init__(self, tech_premiums, penetration_boundaries, maturity_premiums, exchange_rates, inflation):
@@ -561,3 +562,5 @@ class WaccCalculator:
             "currency_risk_premium": currency_risk_premium,
             "excess_depreciation_series": results
         }
+
+   

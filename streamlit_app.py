@@ -92,23 +92,23 @@ with tab3:
         )
 with tab4:
     st.header("Historical and Projected Estimates")
-    options = ["Interest Rate Change", "Renewable Growth", "GDP Change"]
-    options_mapping = {"Interest Rate Change": "interest_rate", "Renewable Growth": "renewable_targets", "GDP Change": "gdp_change"}
-    if country_selection is not None:
-        end_year=2025
-        projection_assumptions = st.pills("Projection Assumptions", options, selection_mode="multi")
-        for i in projection_assumptions:
-            name = options_mapping.get(i)
-            globals()[f"{name}"] = f"{name}"
-        if "Interest Rate Change" not in projection_assumptions:
-            interest_rate = None
-            end_year=2034
-        if "Renewable Growth" not in projection_assumptions:
-            renewable_targets = None
-            end_year=2034
-        if "GDP Change" not in projection_assumptions:
-            gdp_change = None
-            end_year=2034
+    #options = ["Interest Rate Change", "Renewable Growth", "GDP Change"]
+    #options_mapping = {"Interest Rate Change": "interest_rate", "Renewable Growth": "renewable_targets", "GDP Change": "gdp_change"}
+    #if country_selection is not None:
+        #end_year=2025
+        #projection_assumptions = st.pills("Projection Assumptions", options, selection_mode="multi")
+        #for i in projection_assumptions:
+            #name = options_mapping.get(i)
+            #globals()[f"{name}"] = f"{name}"
+        #if "Interest Rate Change" not in projection_assumptions:
+            #interest_rate = None
+            #end_year=2034
+        #if "Renewable Growth" not in projection_assumptions:
+            #renewable_targets = None
+            #end_year=2034
+        #if "GDP Change" not in projection_assumptions:
+            #gdp_change = None
+            #end_year=2034
         #historical_country_data = wacc_predictor.year_range_wacc(start_year=2015, end_year=2023, 
                                                              #technology=technology, country=country_selection)
         #if len(projection_assumptions) > 0:
@@ -117,38 +117,38 @@ with tab4:
             #historical_country_data = pd.concat([future_waccs, historical_country_data])
         #historical_country_data = historical_country_data.drop(columns = ["Debt_Share", "Equity_Cost", "Debt_Cost", "Tax_Rate", "Country code", "WACC"])
         #visualiser.plot_comparison_chart(historical_country_data)
-        with st.spinner(text=f"Collating data for all years for {technology} for {country_select} (typically takes 15 seconds)...", show_time=True, width="content"):
-            technology_df = wacc_estimator.calculate_technology_yearly(start_year=2001, end_year=2035, countries=[country_selection], technologies=[technology],
-            concessionality=concessionality,
-            currency_risk=merchant_risk,
-            merchant_risk=currency_risk)
-            technology_df["Technology"] = technology_df["Technology"].replace(visualiser.tech_dict_reverse)
-            selected_technology_df = technology_df[["Year", "Country code", "CoD_International_Commercial",	"CoE_International_Commercial",	"CoD_International_Public",	"CoE_International_Public",	
-                                                    "CoD_Domestic_Commercial","CoE_Domestic_Commercial", "CoD_Domestic_Public",	"CoE_Domestic_Public",	"Technology", "Risk_Free", "Local_Risk_Free"]]
-            st.download_button(
-            label="Download selected technology estimates",
-            data=convert_for_download(selected_technology_df),
-            file_name=f"{technology}-costsofcapital-"+ country_selection + ".csv",
-            mime="text/csv",
-            icon=":material/download:",
-            key="all-national-WACC-selected-technology",
-        )
-        with st.spinner(text=f"Collating data for all years and technology combinations for {country_select} (typically takes 3-4 mins)...", show_time=True, width="content"):
-            all_technologies_years = wacc_estimator.calculate_technology_yearly(start_year=2001, end_year=2035, countries=[country_selection], technologies=all_techs,
-            concessionality=concessionality,
-            currency_risk=merchant_risk,
-            merchant_risk=currency_risk)
-            all_technologies_years["Technology"] = all_technologies_years["Technology"].replace(visualiser.tech_dict_reverse)
-            all_technologies_years = all_technologies_years[["Year", "Country code", "CoD_International_Commercial",	"CoE_International_Commercial",	"CoD_International_Public",	"CoE_International_Public",	
-                                                    "CoD_Domestic_Commercial","CoE_Domestic_Commercial", "CoD_Domestic_Public",	"CoE_Domestic_Public",	"Technology", "Risk_Free", "Local_Risk_Free"]]
-            st.download_button(
-            label="Download all technology estimates",
-            data=convert_for_download(all_technologies_years),
-            file_name="all-technology-costsofcapital-"+ country_selection + ".csv",
-            mime="text/csv",
-            icon=":material/download:",
-            key="all-national-WACC-all-technology",
-        )
+    with st.spinner(text=f"Collating data for all years for {technology} for {country_select} (typically takes 15 seconds)...", show_time=True, width="content"):
+        technology_df = wacc_estimator.calculate_technology_yearly(start_year=2001, end_year=2035, countries=[country_selection], technologies=[technology],
+        concessionality=concessionality,
+        currency_risk=merchant_risk,
+        merchant_risk=currency_risk)
+        technology_df["Technology"] = technology_df["Technology"].replace(visualiser.tech_dict_reverse)
+        selected_technology_df = technology_df[["Year", "Country code", "CoD_International_Commercial",	"CoE_International_Commercial",	"CoD_International_Public",	"CoE_International_Public",	
+                                                "CoD_Domestic_Commercial","CoE_Domestic_Commercial", "CoD_Domestic_Public",	"CoE_Domestic_Public",	"Technology", "Risk_Free", "Local_Risk_Free"]]
+        st.download_button(
+        label="Download selected technology estimates",
+        data=convert_for_download(selected_technology_df),
+        file_name=f"{technology}-costsofcapital-"+ country_selection + ".csv",
+        mime="text/csv",
+        icon=":material/download:",
+        key="all-national-WACC-selected-technology",
+    )
+    with st.spinner(text=f"Collating data for all years and technology combinations for {country_select} (typically takes 3-4 mins)...", show_time=True, width="content"):
+        all_technologies_years = wacc_estimator.calculate_technology_yearly(start_year=2001, end_year=2035, countries=[country_selection], technologies=all_techs,
+        concessionality=concessionality,
+        currency_risk=merchant_risk,
+        merchant_risk=currency_risk)
+        all_technologies_years["Technology"] = all_technologies_years["Technology"].replace(visualiser.tech_dict_reverse)
+        all_technologies_years = all_technologies_years[["Year", "Country code", "CoD_International_Commercial",	"CoE_International_Commercial",	"CoD_International_Public",	"CoE_International_Public",	
+                                                "CoD_Domestic_Commercial","CoE_Domestic_Commercial", "CoD_Domestic_Public",	"CoE_Domestic_Public",	"Technology", "Risk_Free", "Local_Risk_Free"]]
+        st.download_button(
+        label="Download all technology estimates",
+        data=convert_for_download(all_technologies_years),
+        file_name="all-technology-costsofcapital-"+ country_selection + ".csv",
+        mime="text/csv",
+        icon=":material/download:",
+        key="all-national-WACC-all-technology",
+    )
 with tab7: 
     text = open('about.md').read()
     st.write(text)

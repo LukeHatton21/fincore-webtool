@@ -117,7 +117,7 @@ with tab4:
             #historical_country_data = pd.concat([future_waccs, historical_country_data])
         #historical_country_data = historical_country_data.drop(columns = ["Debt_Share", "Equity_Cost", "Debt_Cost", "Tax_Rate", "Country code", "WACC"])
         #visualiser.plot_comparison_chart(historical_country_data)
-        with st.spinner(text=f"Collating data for all years for {technology} for {country_select} (typically takes 5 seconds)...", show_time=True, width="content"):
+        with st.spinner(text=f"Collating data for all years for {technology} for {country_select} (typically takes 15 seconds)...", show_time=True, width="content"):
             technology_df = wacc_estimator.calculate_technology_yearly(start_year=2001, end_year=2035, countries=[country_selection], technologies=[technology],
             concessionality=concessionality,
             currency_risk=merchant_risk,

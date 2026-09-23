@@ -2,7 +2,7 @@ import xarray as xr
 import pandas as pd
 import numpy as np
 import streamlit as st
-from wacc_calculator_v1 import WaccCalculator
+from wacc_calculator import WaccCalculator
 
 
 class WaccEstimator:

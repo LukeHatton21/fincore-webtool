@@ -484,104 +484,143 @@ class WaccEstimator:
         return out
 
     def estimate_currency_risk_premium_df(
-    self,
-    df,
-    year,
-    country_col="Country code",
-    lookback=5,
-    risk_aversion=0.1,
-    output_col="Currency_Risk"
-):
+            self,
+            df,
+            year,
+            country_col="Country code",
+            lookback=15,
+            output_col="Currency_Risk_Premium",
+            # alpha from CDS
+            cds_col="CDS",  # column in out: country CDS in bps (or use cds_in_bps=False)
+            cds_in_bps=False,
+            alpha_min=0.01,  # floor alpha
+            alpha_beta=0.5,  # slope on CDS (decimal CDS units)
+            alpha_max=0.25,  # cap alpha
+            # stress settings
+            stress_quantile=0.90,
+            dscr_target=1.20,
+            dscr_base=1.30,  # scalar or column name in df
+            hedge_ratio=0.0,  # scalar, dict, or column name in df
+            use_log_fx=True,
+            zero_eur_exposure=True,
+            floor=0.0,
+            cap=None
+    ):
         """
-        Vectorized currency risk premium for all countries in df[country_col].
-        Returns df with output_col added.
-        """
+        Currency risk premium from DSCR damage under adverse FX stress, with alpha_i from CDS.
 
+        CRP_i = alpha_i * delta_i
+        delta_i = max(0, (DSCR_target - DSCR_stress_i)/DSCR_target)
+        DSCR_stress_i = DSCR_base_i / (1 + (1-h_i)*dep_stress_i)
+
+        alpha_i = clip(alpha_min + alpha_beta * CDS_i, alpha_min, alpha_max)
+        """
+        year="2025"
         out = df.copy()
         out[country_col] = out[country_col].astype(str)
 
-        # Optional EUR mapping for EU rows (without changing country_col)
+        # EUR mapping
         eu_iso3 = [
-            "AUT","BEL","BGR","HRV","CYP","CZE","DNK","EST","FIN","FRA","DEU","GRC",
-            "HUN","IRL","ITA","LVA","LTU","LUX","MLT","NLD","POL","PRT","ROU","SVK",
-            "SVN","ESP","SWE"
+            "AUT", "BEL", "BGR", "HRV", "CYP", "CZE", "DNK", "EST", "FIN", "FRA", "DEU", "GRC",
+            "HUN", "IRL", "ITA", "LVA", "LTU", "LUX", "MLT", "NLD", "POL", "PRT", "ROU", "SVK",
+            "SVN", "ESP", "SWE"
         ]
         out["fx_country_key"] = np.where(out[country_col].isin(eu_iso3), "EUR", out[country_col])
 
         y = int(year)
         obs_years = list(range(y - lookback + 1, y + 1))
-        infl_cols = [str(n) for n in obs_years]
-        er_prev_cols = [f"ER_{n-1}" for n in obs_years]
+        er_prev_cols = [f"ER_{n - 1}" for n in obs_years]
         er_curr_cols = [f"ER_{n}" for n in obs_years]
 
-        # Validate columns
-        miss_infl = [c for c in infl_cols if c not in self.calculator.inflation.columns]
-        miss_er_prev = [c for c in er_prev_cols if c not in self.calculator.exchange_rates.columns]
-        miss_er_curr = [c for c in er_curr_cols if c not in self.calculator.exchange_rates.columns]
-        if miss_infl:
-            raise ValueError(f"Missing inflation column(s): {miss_infl}")
+        # Validate FX columns
+        fx_cols = set(self.calculator.exchange_rates.columns)
+        miss_er_prev = [c for c in er_prev_cols if c not in fx_cols]
+        miss_er_curr = [c for c in er_curr_cols if c not in fx_cols]
         if miss_er_prev or miss_er_curr:
             raise ValueError(f"Missing exchange-rate column(s): {miss_er_prev + miss_er_curr}")
 
-        # Country subset needed
-        countries_needed = out["fx_country_key"].dropna().unique()
+        if cds_col not in out.columns:
+            raise ValueError(f"CDS column '{cds_col}' not found in input df")
 
-        infl = self.calculator.inflation.copy()
-        infl["Country code"] = infl["Country code"].astype(str)
+        countries_needed = out["fx_country_key"].dropna().unique()
+        fx_needed_cols = ["Country code"] + list(dict.fromkeys(er_prev_cols + er_curr_cols))
 
         fx = self.calculator.exchange_rates.copy()
         fx["Country code"] = fx["Country code"].astype(str)
 
-        local_infl = infl.loc[infl["Country code"].isin(countries_needed), ["Country code"] + infl_cols].copy()
-        local_fx = fx.loc[fx["Country code"].isin(countries_needed), ["Country code"] + er_prev_cols + er_curr_cols].copy()
+        local_fx = fx.loc[fx["Country code"].isin(countries_needed), fx_needed_cols].copy()
+        local_fx = local_fx.drop_duplicates(subset=["Country code"], keep="last")
+        fx_idx = local_fx.set_index("Country code")
 
-        # USD inflation vector
-        usd_row = infl.loc[infl["Country code"] == "USA", infl_cols]
-        if usd_row.empty:
-            raise ValueError("No inflation data found for hard currency country code 'USA'")
-        usd_infl = pd.to_numeric(usd_row.iloc[0], errors="coerce").to_numpy(dtype=float) / 100.0  # shape (lookback,)
-        st.write(usd_infl)
-
-        # Build matrices
-        local_infl_mat = local_infl.set_index("Country code")[infl_cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float) / 100.0
-        prev_mat = local_fx.set_index("Country code")[er_prev_cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
-        curr_mat = local_fx.set_index("Country code")[er_curr_cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
-
-        # Align country order (important)
-        countries_infl = local_infl["Country code"].values
-        countries_fx = local_fx["Country code"].values
-        common = pd.Index(countries_infl).intersection(pd.Index(countries_fx))
-
+        common = pd.Index(countries_needed).intersection(fx_idx.index).sort_values()
         if len(common) == 0:
             out[output_col] = np.nan
             out.drop(columns=["fx_country_key"], inplace=True)
             return out
 
-        local_infl_idx = local_infl.set_index("Country code").loc[common, infl_cols]
-        local_fx_prev_idx = local_fx.set_index("Country code").loc[common, er_prev_cols]
-        local_fx_curr_idx = local_fx.set_index("Country code").loc[common, er_curr_cols]
+        ep = fx_idx.reindex(common)[er_prev_cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+        ec = fx_idx.reindex(common)[er_curr_cols].apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
 
-        li = local_infl_idx.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float) / 100.0
-        ep = local_fx_prev_idx.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
-        ec = local_fx_curr_idx.apply(pd.to_numeric, errors="coerce").to_numpy(dtype=float)
+        # Nominal depreciation matrix
+        if use_log_fx:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                dep = np.log(ec) - np.log(ep)
+        else:
+            with np.errstate(invalid="ignore", divide="ignore"):
+                dep = (ec - ep) / ep
 
-        # Vectorized formulas
-        c_infl = ((1.0 + li) / (1.0 + usd_infl)) - 1.0
-        c_dep = (ec - ep) / ep
-        c_exc = c_dep - c_infl
+        dep_stress = np.nanquantile(dep, stress_quantile, axis=1)
 
-        # std across years per country
-        std_exc = np.nanstd(c_exc, axis=1, ddof=1)
-        premium = risk_aversion * std_exc
+        # hedge ratio h_i
+        if isinstance(hedge_ratio, str):
+            h_map = out.groupby("fx_country_key")[hedge_ratio].mean().to_dict()
+            h_vec = np.array([h_map.get(cc, 0.0) for cc in common], dtype=float)
+        elif isinstance(hedge_ratio, dict):
+            h_vec = np.array([hedge_ratio.get(cc, 0.0) for cc in common], dtype=float)
+        else:
+            h_vec = np.full(len(common), float(hedge_ratio), dtype=float)
+        h_vec = np.clip(h_vec, 0.0, 1.0)
+
+        # dscr_base_i
+        if isinstance(dscr_base, str):
+            d_map = out.groupby("fx_country_key")[dscr_base].mean().to_dict()
+            dscr_base_vec = np.array([d_map.get(cc, np.nan) for cc in common], dtype=float)
+        else:
+            dscr_base_vec = np.full(len(common), float(dscr_base), dtype=float)
+
+        # alpha_i from CDS
+        cds_map = out.groupby("fx_country_key")[cds_col].mean().to_dict()
+        cds_vec = np.array([cds_map.get(cc, np.nan) for cc in common], dtype=float)
+
+        if cds_in_bps:
+            cds_dec = cds_vec / 10000.0
+        else:
+            cds_dec = cds_vec
+
+        alpha_vec = np.clip(alpha_min + alpha_beta * cds_dec, alpha_min, alpha_max)
+
+        # DSCR stress and premium
+        shock_eff = (1.0 - h_vec) * dep_stress
+        dscr_stress = dscr_base_vec / (1.0 + shock_eff)
+        delta = np.maximum(0.0, (float(dscr_target) - dscr_stress) / float(dscr_target))
+
+        premium = alpha_vec * delta
+
+        if zero_eur_exposure:
+            premium[common.values == "EUR"] = 0.0
+
+        if floor is not None:
+            premium = np.maximum(premium, float(floor))
+        if cap is not None:
+            premium = np.minimum(premium, float(cap))
 
         prem_tbl = pd.DataFrame({
             "fx_country_key": common.values,
-            output_col: premium
+            output_col: premium * 100
         })
 
         out = out.merge(prem_tbl, on="fx_country_key", how="left")
         out.drop(columns=["fx_country_key"], inplace=True)
-
         return out
 
     def calculate_underlying_factors(self, year, technology, country_codes):
@@ -617,7 +656,7 @@ class WaccEstimator:
         storage_df["Lenders_Margin"] = self.calculator.lenders_margin
 
         # Calculate currency risk
-        #storage_df = self.estimate_currency_risk_premium_df(storage_df, year)
+        storage_df = self.estimate_currency_risk_premium_df(storage_df, year)
 
         # Calculate financial immaturity premium
         storage_df = self.calculate_financial_maturity(storage_df)
@@ -653,10 +692,12 @@ class WaccEstimator:
         int_country_passthrough = 0.51
 
         # Check if currency risk included
-        if currency_risk and currency_risk_col in data.columns:
+        if currency_risk is True:
             crfx = pd.to_numeric(data[currency_risk_col], errors="coerce").fillna(0.0)
         else:
             crfx = 0.0
+        data[currency_risk_col] = crfx
+        data["Merchant_Risk_Premium"] = merchant_risk_value
 
         # Extract all base terms
         riskfree_g = pd.to_numeric(data["Risk_Free"], errors="coerce").fillna(0.0)
@@ -689,14 +730,42 @@ class WaccEstimator:
             riskfree_g + erp + int_country_passthrough * cds * equity_weighting + tp - conc + merchant_risk_value * merchant_risk_weighting + crfx
         )
 
+        # Limit international public to non Annex II countries
+        annex_II = ["AUS",  # Australia
+         "AUT",  # Austria
+         "BEL",  # Belgium
+         "CAN",  # Canada
+         "DNK",  # Denmark
+         "FIN",  # Finland
+         "FRA",  # France
+         "DEU",  # Germany
+         "GRC",  # Greece
+         "ISL",  # Iceland
+         "IRL",  # Ireland
+         "ITA",  # Italy
+         "JPN",  # Japan
+         "LUX",  # Luxembourg
+         "NLD",  # Netherlands
+         "NZL",  # New Zealand
+         "NOR",  # Norway
+         "PRT",  # Portugal
+         "ESP",  # Spain
+         "SWE",  # Sweden
+         "CHE",  # Switzerland
+         "TUR",  # Turkey
+         "GBR",  # United Kingdom
+         "USA"]
+        data.loc[data["Country code"].isin(annex_II), ["CoD_International_Public", "CoE_International_Public"]] = [np.nan, np.nan]
+
+
         # -------------------------
         # Domestic Commercial
         # -------------------------
         data["CoD_Domestic_Commercial"] = (
-            riskfree_l  + local_country_passthrough * cds + tp + lm + merchant_risk_value
+            riskfree_g  + local_country_passthrough * cds + tp + lm + merchant_risk_value
         )
         data["CoE_Domestic_Commercial"] = (
-            riskfree_l + erp + local_country_passthrough * cds * equity_weighting + tp + lm + merchant_risk_value * merchant_risk_weighting
+            riskfree_g + erp + local_country_passthrough * cds * equity_weighting + tp + lm + merchant_risk_value * merchant_risk_weighting
         )
 
         # -------------------------
